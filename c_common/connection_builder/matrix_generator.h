@@ -85,7 +85,7 @@ public:
                 uint32_t pre_start, uint32_t pre_count,
                 uint32_t pre_block_start,  uint32_t pre_block_end,
                 uint32_t num_pre_neurons, uint32_t words_per_weight,
-                int32_t* weight_scales, uint32_t syn_type_bits,
+                uint32_t* weight_scales, uint32_t syn_type_bits,
                 ConnectorGenerator::Base *connectorGenerator,
                 const ParamGenerator::Base *delayGenerator,
                 const ParamGenerator::Base *weightGenerator, MarsKiss64 &rng,
@@ -107,26 +107,28 @@ protected:
 
       if (*fixed_address == EMPTY_VAL && !skip_first){
         *fixed_address = new_fixed;
+//        LOG_PRINT(LOG_LEVEL_INFO, "\tinit-inserted %u in %u", new_fixed, 0);
 
         if(is_plastic){ plastic_address[plastic_step-1] = new_plastic; }
+
         return;
       }
       for(uint32_t i = 1; i < max_rows; i++){
         if ((fixed_address[i] == EMPTY_VAL) && \
-           (fixed_address[i - 1] & val_mask) < \
-           (new_fixed & val_mask)){
+            ((fixed_address[i - 1] & val_mask) < \
+            (new_fixed & val_mask))){
 
             fixed_address[i] = new_fixed;
 
             if(is_plastic){
               plastic_address[plastic_step*(i+1) - 1] = new_plastic;
             }
-//            LOG_PRINT(LOG_LEVEL_INFO, "\tinserted in %u", i);
+//            LOG_PRINT(LOG_LEVEL_INFO, "\tdirect inserted in %u", i);
             return;
         }
         else if ((fixed_address[i] == EMPTY_VAL) && \
-                 (fixed_address[i - 1] & val_mask) > \
-                 (new_fixed & val_mask)){
+                 ((fixed_address[i - 1] & val_mask) > \
+                  (new_fixed & val_mask))){
 
           fixed_address[i] = fixed_address[i - 1];
           fixed_address[i - 1] = new_fixed;
@@ -136,7 +138,7 @@ protected:
                                 plastic_address[plastic_step*i - 1];
             plastic_address[plastic_step*i - 1] = new_plastic;
           }
-//          LOG_PRINT(LOG_LEVEL_INFO, "\tinserted in %u", i);
+//          LOG_PRINT(LOG_LEVEL_INFO, "\tswap inserted in %u", i);
           return;
         }
         else if ((fixed_address[i - 1] & val_mask) > \
@@ -146,6 +148,7 @@ protected:
           if(is_plastic){
             swap(plastic_address[plastic_step*(i - 1)], new_plastic);
           }
+//          LOG_PRINT(LOG_LEVEL_INFO, "\tswapped %u <-> %u", i, i-1);
         }
       }
 
@@ -191,7 +194,7 @@ protected:
   //-----------------------------------------------------------------------------
   virtual unsigned int WriteRow(uint32_t *synapse_mtx, uint32_t num_pre_neurons,
   uint32_t pre_idx, const uint32_t max_per_pre_matrix_size, const uint32_t numIndices,
-  const int32_t weight_shift,  uint32_t syn_type_bits, uint32_t words_per_weight,
+  const uint32_t weight_shift,  uint32_t syn_type_bits, uint32_t words_per_weight,
   const uint32_t max_num_plastic, const uint32_t max_num_static, uint32_t synapseType,
   const uint16_t (&indices)[512], const int32_t (&delays)[512], const int32_t (&weights)[512]) const = 0;
 
@@ -266,7 +269,7 @@ protected:
   //-----------------------------------------------------------------------------
   virtual unsigned int WriteRow(uint32_t *synapse_mtx, uint32_t num_pre_neurons,
   uint32_t pre_idx, const uint32_t max_per_pre_matrix_size, const uint32_t numIndices,
-  const int32_t weight_shift,  uint32_t syn_type_bits, uint32_t words_per_weight,
+  const uint32_t weight_shift,  uint32_t syn_type_bits, uint32_t words_per_weight,
   const uint32_t max_num_plastic, const uint32_t max_num_static, uint32_t synapseType,
   const uint16_t (&indices)[512], const int32_t (&delays)[512], const int32_t (&weights)[512]) const;
 
@@ -290,7 +293,7 @@ protected:
   //-----------------------------------------------------------------------------
   virtual unsigned int WriteRow(uint32_t *synapse_mtx, uint32_t num_pre_neurons,
   uint32_t pre_idx, const uint32_t max_per_pre_matrix_size, const uint32_t numIndices,
-  const int32_t weight_shift, uint32_t syn_type_bits, uint32_t words_per_weight,
+  const uint32_t weight_shift, uint32_t syn_type_bits, uint32_t words_per_weight,
   const uint32_t max_num_plastic, const uint32_t max_num_static, uint32_t synapseType,
   const uint16_t (&indices)[512], const int32_t (&delays)[512], const int32_t (&weights)[512]) const;
 

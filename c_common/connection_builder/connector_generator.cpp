@@ -19,7 +19,7 @@ ConnectionBuilder::ConnectorGenerator::AllToAll::AllToAll(uint32_t *&region)
 {
   m_AllowSelfConnections = *region++;
 
-  LOG_PRINT(LOG_LEVEL_INFO, "\t\tAll-to-all connector: Allow self connections: %u",
+  LOG_PRINT(LOG_LEVEL_INFO, "\t\tAll-to-all: Self conns: %u",
             m_AllowSelfConnections);
 }
 //-----------------------------------------------------------------------------
@@ -58,14 +58,14 @@ ConnectionBuilder::ConnectorGenerator::Mapping::Mapping(uint32_t *&region){
     m_channel     = (uint8_t)( (*region) & 0xFF );
     m_eventBits   = (uint8_t)( ((*region) >> 8) & 0xFF );
     m_channelBits = (uint8_t)( ((*region) >> 16) & 0xFF );
-    m_rowBits     = (uint8_t)( ((*region) >> 24) & 0xFF );
+    m_heightBits     = (uint8_t)( ((*region) >> 24) & 0xFF );
 
     region++;
 
-    LOG_PRINT(LOG_LEVEL_INFO, "\t\tMapping Connector:");
+    LOG_PRINT(LOG_LEVEL_INFO, "\t\tMapping:");
     io_printf(IO_BUF,
      "\t\t\t\tShape %d, %d; channel %d, rowBits %d, channelBits %d, eventBits %u\n",
-     m_width, m_height, m_channel, m_rowBits, m_channelBits, m_eventBits);
+     m_width, m_height, m_channel, m_heightBits, m_channelBits, m_eventBits);
 
 }
 
@@ -80,15 +80,19 @@ unsigned int ConnectionBuilder::ConnectorGenerator::Mapping::Generate(
 
   uint16_t chan = (pre_idx >> m_eventBits) & ((1 << m_channelBits) - 1);
 
-  if (chan != m_channel){
+  if (chan != m_channel || pre_idx == 1 || pre_idx == 0){
+  // TODO: not cool, this should be passed in from python
 //    io_printf(IO_BUF, "not the right channel!!!\n");
+//    io_printf(IO_BUF, "Channel %u\tEvent %u\n", chan, event);
     return 0;
   }
   uint8_t n_conns=0;
 
-  uint16_t pre_c = pre_idx >> (m_rowBits + m_channelBits + m_eventBits);
+  // X
+  uint16_t pre_c = pre_idx >> (m_heightBits + m_channelBits + m_eventBits);
+  // Y
   uint16_t pre_r = (pre_idx >> (m_channelBits + m_eventBits)) & \
-                   ((1 << m_rowBits) - 1);
+                   ((1 << m_heightBits) - 1);
 
   uint16_t post_c;
   uint16_t post_r = uidiv(post_start, m_width, post_c);
@@ -107,9 +111,9 @@ unsigned int ConnectionBuilder::ConnectorGenerator::Mapping::Generate(
     post_r = uidiv(post_idx, m_width, post_c);
 //    io_printf(IO_BUF, "(%d, %d) == (%d, %d)?\n",
 //              pre_r, pre_c, post_r, post_c);
-    if(pre_c == post_c && pre_r == post_r){
-      io_printf(IO_BUF, "pre %d == (%d, %d) == post %d\n",
-                pre_idx, pre_r, pre_c, post_idx);
+    if(pre_c == post_c && pre_r == post_r ){
+//      io_printf(IO_BUF, "pre %d == (%d, %d) == post %d\n",
+//                pre_idx, pre_r, pre_c, post_idx);
       indices[n_conns] = post_idx - post_start;
       return 1;
     }
@@ -118,6 +122,152 @@ unsigned int ConnectionBuilder::ConnectorGenerator::Mapping::Generate(
   return 0;
 
 }
+
+
+//-----------------------------------------------------------------------------
+// ConnectionBuilder::ConnectorGenerator::Cortical
+//-----------------------------------------------------------------------------
+ConnectionBuilder::ConnectorGenerator::Cortical::Cortical(uint32_t *&region){
+
+    m_probability = (uint32_t)(*region);
+    region++;
+//    io_printf(IO_BUF, "Cortical probability %u\n", m_probability);
+    m_allowSelfConnections = (uint8_t)(*region & 1);
+//    io_printf(IO_BUF, "Cortical allow self %u\n", m_allowSelfConnections);
+    m_maxDistance = (uint16_t)((*region >> 1) & 0x7FFF);
+//    io_printf(IO_BUF, "Cortical max distance %u\n", m_maxDistance);
+    m_maxDistanceSquare = (uint16_t)((*region >> 16) & 0xFFFF);
+//    io_printf(IO_BUF, "Cortical max dist sqr %u\n", m_maxDistanceSquare);
+    region++;
+
+    m_prePerZone  = (uint16_t)( (*region) >> 16 );
+    m_postPerZone = (uint16_t)( (*region) & 0xFFFF );
+    region++;
+//    io_printf(IO_BUF, "Cortical per zone pre %u, post %u\n",
+//              m_prePerZone, m_postPerZone);
+
+    m_commonWidth   = (uint16_t)( (*region) >> 16 );
+    m_commonHeight  = (uint16_t)( (*region) & 0xFFFF );
+    region++;
+//    io_printf(IO_BUF, "Cortical common shape %u, %u\n",
+//              m_commonWidth, m_commonHeight);
+
+    m_preWidth   = (uint16_t)( (*region) >> 16 );
+    m_preHeight  = (uint16_t)( (*region) & 0xFFFF );
+    region++;
+//    io_printf(IO_BUF, "Cortical pre shape %u, %u\n",
+//              m_preWidth, m_preHeight);
+
+    m_postWidth  = (uint16_t)( (*region) >> 16 );
+    m_postHeight = (uint16_t)( (*region) & 0xFFFF );
+    region++;
+//    io_printf(IO_BUF, "Cortical post shape %u, %u\n",
+//              m_postWidth, m_postHeight);
+
+
+    m_startPreWidth  = (uint16_t)( (*region) >> 16 );
+    m_startPreHeight = (uint16_t)( (*region) & 0xFFFF );
+    region++;
+//    io_printf(IO_BUF, "Cortical start pre shape %u, %u\n",
+//              m_startPreWidth, m_startPreHeight);
+
+
+    m_startPostWidth  = (uint16_t)( (*region) >> 16 );
+    m_startPostHeight = (uint16_t)( (*region) & 0xFFFF );
+    region++;
+//    io_printf(IO_BUF, "Cortical start post shape %u, %u\n",
+//              m_startPostWidth, m_startPostHeight);
+
+
+    m_stepPreWidth  = (uint16_t)( (*region) >> 16 );
+    m_stepPreHeight = (uint16_t)( (*region) & 0xFFFF );
+    region++;
+//    io_printf(IO_BUF, "Cortical step pre shape %u, %u\n",
+//              m_stepPreWidth, m_stepPreHeight);
+
+
+    m_stepPostWidth  = (uint16_t)( (*region) >> 16 );
+    m_stepPostHeight = (uint16_t)( (*region) & 0xFFFF );
+    region++;
+//    io_printf(IO_BUF, "Cortical step post shape %u, %u\n",
+//              m_stepPostWidth, m_stepPostHeight);
+
+    LOG_PRINT(LOG_LEVEL_INFO, "\t\t\tCortical:");
+    io_printf(IO_BUF, "\t\t\t\tpre(%d, %d) => post(%d, %d)\n",
+              m_preWidth, m_preHeight, m_postWidth, m_postHeight);
+//    io_printf(IO_BUF, "\t\t\t\tstart(%d, %d), step(%d, %d)\n",
+//              m_startPostWidth, m_startPostHeight,
+//              m_stepPostWidth, m_stepPostHeight);
+}
+
+
+
+
+
+unsigned int ConnectionBuilder::ConnectorGenerator::Cortical::Generate(
+                                     uint32_t pre_start, uint32_t pre_count,
+                                     uint32_t pre_idx,
+                                     uint32_t post_start, uint32_t post_count,
+                                     uint32_t max_indices,
+                                     MarsKiss64 &rng, uint16_t (&indices)[512]){
+//  LOG_PRINT(LOG_LEVEL_INFO, "-------------------In Kernel Connector Generator");
+  uint32_t index_count = 0;
+  uint16_t total_pre_width = m_preWidth * m_prePerZone;
+  uint16_t total_post_width = m_postWidth * m_postPerZone;
+  uint16_t pre_c_tmp;
+  uint16_t tmp;
+  uint16_t pre_r = uidiv(pre_idx, total_pre_width, pre_c_tmp);
+  uint16_t pre_c = uidiv(pre_c_tmp, m_prePerZone, tmp);
+
+  uint16_t pre_comm_r = m_startPreHeight + pre_r * m_stepPreHeight;
+  uint16_t pre_comm_c = m_startPreWidth + pre_c * m_stepPreWidth;
+
+  for(uint16_t post_idx = post_start; post_idx < post_start + post_count;
+      post_idx++){
+//    io_printf(IO_BUF, "IDX pre %u, post %u\n", pre_idx, post_idx);
+    //post row and col from index
+    uint16_t post_c_tmp;
+    uint16_t post_r = uidiv(post_idx, total_post_width, post_c_tmp);
+    uint16_t post_c = uidiv(post_c_tmp, m_postPerZone, tmp);
+
+    //post in common coordinate system
+    int16_t post_comm_r = m_startPostHeight + post_r*m_stepPostHeight;
+    int16_t post_comm_c = m_startPostWidth  + post_c*m_stepPostWidth;
+    if( post_comm_r < 0 || post_comm_r >= m_commonHeight ||
+        post_comm_c < 0 || post_comm_c >= m_commonWidth){
+      continue;
+    }
+
+    if(post_comm_r == pre_comm_r && post_comm_c == pre_comm_c &&
+       !m_allowSelfConnections){
+      continue;
+    }
+
+    uint16_t d2 = (post_comm_c - pre_comm_c) * (post_comm_c - pre_comm_c) + \
+                  (post_comm_r - pre_comm_r) * (post_comm_r - pre_comm_r);
+    uint32_t dice_roll = rng.GetNext();
+
+//    io_printf(IO_BUF, "pre (%u, %u) => (%u, %u) ==? post (%u, %u) => (%u, %u)\n",
+//      pre_r, pre_c, pre_comm_r, pre_comm_c, post_r, post_c, post_comm_r, post_comm_c);
+//    io_printf(IO_BUF, "distance %u\n", d2);
+//    io_printf(IO_BUF, "\tdice roll %u < %u\n", dice_roll, m_probability);
+
+    if(d2 > m_maxDistanceSquare){
+      continue;
+    }
+
+    if(dice_roll > m_probability){
+      continue;
+    }
+
+    indices[index_count] = post_idx - post_start;
+    index_count++;
+
+  }
+
+  return index_count;
+}
+
 
 
 //-----------------------------------------------------------------------------
@@ -157,13 +307,13 @@ ConnectionBuilder::ConnectorGenerator::Kernel::Kernel(uint32_t *&region){
     m_kernelHeight = (uint16_t)( (*region) & 0xFFFF );
     region++;
 
-    LOG_PRINT(LOG_LEVEL_INFO, "\t\t\tKernel-based Connector:");
+    LOG_PRINT(LOG_LEVEL_INFO, "\t\t\tKernel:");
     io_printf(IO_BUF, "\t\t\t\tpre(%d, %d) => post(%d, %d)\n",
               m_preWidth, m_preHeight, m_postWidth, m_postHeight);
-    io_printf(IO_BUF, "\t\t\t\tkernel(%d, %d), start(%d, %d), step(%d, %d)\n",
-              m_kernelWidth, m_kernelHeight,
-              m_startPostWidth, m_startPostHeight,
-              m_stepPostWidth, m_stepPostHeight);
+//    io_printf(IO_BUF, "\t\t\t\tkernel(%d, %d), start(%d, %d), step(%d, %d)\n",
+//              m_kernelWidth, m_kernelHeight,
+//              m_startPostWidth, m_startPostHeight,
+//              m_stepPostWidth, m_stepPostHeight);
 }
 
 
@@ -245,7 +395,7 @@ unsigned int ConnectionBuilder::ConnectorGenerator::Kernel::Generate(
 //-----------------------------------------------------------------------------
 ConnectionBuilder::ConnectorGenerator::OneToOne::OneToOne(uint32_t *&)
 {
-  LOG_PRINT(LOG_LEVEL_INFO, "\t\tOne-to-one connector");
+  LOG_PRINT(LOG_LEVEL_INFO, "\t\tOne-to-one");
 }
 //-----------------------------------------------------------------------------
 unsigned int ConnectionBuilder::ConnectorGenerator::OneToOne::Generate(
@@ -274,7 +424,7 @@ unsigned int ConnectionBuilder::ConnectorGenerator::OneToOne::Generate(
    m_AllowSelfConnections = *region++;
    m_Probability = *region++;
 
-   LOG_PRINT(LOG_LEVEL_INFO, "\t\tFixed-probability connector: probability:%u",
+   LOG_PRINT(LOG_LEVEL_INFO, "\t\tFixed-probability: prob: %u",
      m_Probability);
  }
  //-----------------------------------------------------------------------------
