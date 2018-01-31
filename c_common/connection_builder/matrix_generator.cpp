@@ -215,7 +215,7 @@ unsigned int ConnectionBuilder::MatrixGenerator::Static::WriteRow(uint32_t *syna
     // EXC == 0, INH == 1
     int32_t weight = weights[data_index];
 
-    // if(weight == 0){ continue; }
+    if(weight == 0){ continue; }
 
     if (IsSignedWeight() && weight < 0 &&
         (synapseType == 0 || synapseType == 1)){
