@@ -8,3 +8,4 @@
 .settings
 .cproject
 Debug
+./spinn_front_end_common/connection_builder/connection_builder_app/*.aplx
