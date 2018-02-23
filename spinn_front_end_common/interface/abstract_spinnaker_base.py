@@ -860,7 +860,8 @@ class AbstractSpinnakerBase(SimulatorInterface):
             len(steps), run_time))
         for i, step in enumerate(steps):
             logger.info("Run {} of {}".format(i + 1, len(steps)))
-            self._do_run(step, loading_done, run_until_complete)
+            self._do_run(step, loading_done, run_until_complete,
+                application_graph_changed)
 
         # Indicate that the signal handler needs to act
         self._raise_keyboard_interrupt = False
@@ -1605,7 +1606,8 @@ class AbstractSpinnakerBase(SimulatorInterface):
             helpful_functions.convert_time_diff_to_total_milliseconds(
                 load_timer.take_sample())
 
-    def _do_run(self, n_machine_time_steps, loading_done, run_until_complete):
+    def _do_run(self, n_machine_time_steps, loading_done, run_until_complete,
+            application_graph_changed):
 
         # start timer
         run_timer = Timer()
@@ -1676,7 +1678,10 @@ class AbstractSpinnakerBase(SimulatorInterface):
             algorithms.append("ChipRuntimeUpdater")
 
         # Add the database writer in case it is needed
-        algorithms.append("DatabaseInterface")
+        if (not self._use_virtual_board or (\
+            self._has_reset_last and application_graph_changed)):
+            algorithms.append("DatabaseInterface")
+        
         if not self._use_virtual_board:
             algorithms.append("NotificationProtocol")
 
