@@ -30,7 +30,8 @@ DLY_SDRAM_TAG = 160  # whaaat!?!?!? should this be defined in another file???
 
 MAX_32 = numpy.uint32(0xFFFFFFFF)
 
-FORCE_EXTRACT = bool(1)
+# ask spinnaker to send IO-BUF after builder is done
+FORCE_EXTRACT = bool(0)
 
 class ConnectionBuilder(object):
     """ Compressor that uses a on chip router compressor

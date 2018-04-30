@@ -93,6 +93,9 @@ unsigned int ConnectionBuilder::ConnectorGenerator::Mapping::Generate(
   // Y
   uint16_t pre_r = (pre_idx >> (m_channelBits + m_eventBits)) & \
                    ((1 << m_heightBits) - 1);
+  if (pre_c >= m_width || pre_r >= m_height){
+    return 0;
+  }
 
   uint16_t post_c;
   uint16_t post_r = uidiv(post_start, m_width, post_c);
@@ -357,10 +360,12 @@ unsigned int ConnectionBuilder::ConnectorGenerator::Kernel::Generate(
     //post in common coordinate system
     int16_t pac_r = m_startPostHeight + post_r*m_stepPostHeight;
     int16_t pac_c = m_startPostWidth  + post_c*m_stepPostWidth;
+
     if( pac_r < 0 || pac_r >= m_commonHeight ||
         pac_c < 0 || pac_c >= m_commonWidth){
       continue;
     }
+
     int16_t pap_r, pap_c;
     //convert from common to pre coordinates
     pre_in_post_world(pac_r, pac_c, m_startPreHeight, m_startPreWidth,

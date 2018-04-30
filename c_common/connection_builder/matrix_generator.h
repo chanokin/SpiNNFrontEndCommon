@@ -71,8 +71,8 @@ class Base
 {
 public:
   Base(uint32_t *&region);
-  uint32_t m_PreStateWords; //TODO: should make this private + accessors
-  uint32_t m_WordsPerWeight;
+  uint32_t m_PreStateBytes; //TODO: should make this private + accessors
+  uint32_t m_BytesPerWeight;
   bool is_static;
   //-----------------------------------------------------------------------------
   // Public API

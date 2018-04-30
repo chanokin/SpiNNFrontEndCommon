@@ -38,7 +38,8 @@ inline uint32_t to_shifted_fix88(uint32_t fix1616, uint32_t shift){
 //-----------------------------------------------------------------------------
 ConnectionBuilder::MatrixGenerator::Base::Base(uint32_t *&region){
   m_SignedWeight = *region++;
-  m_PreStateWords = *region++;
+  m_PreStateBytes = *region++;
+  m_BytesPerWeight = *region++;
 
 }
 //-----------------------------------------------------------------------------
@@ -183,8 +184,8 @@ void ConnectionBuilder::MatrixGenerator::Base::TraceInt(int32_t (&values)[512],
 //-----------------------------------------------------------------------------
 ConnectionBuilder::MatrixGenerator::Static::Static(uint32_t *&region) : Base(region)
 {
-  io_printf(IO_BUF, "\t\tStatic synaptic matrix: signed? %u\n",
-    IsSignedWeight());
+
+  io_printf(IO_BUF, "\t\tStatic: signed? %u\n", IsSignedWeight());
   is_static = true;
 }
 //-----------------------------------------------------------------------------
@@ -219,9 +220,10 @@ unsigned int ConnectionBuilder::MatrixGenerator::Static::WriteRow(uint32_t *syna
 
     if(weight == 0){ continue; }
 
+    // currently not used
     if (IsSignedWeight() && weight < 0 &&
-        (synapseType == 0 || synapseType == 1)){
-      synapseType = 1;
+        (synapseType == EXC || synapseType == INH)){
+      synapseType = INH;
       weight = -weight;
     }
     weight = ClampWeight(weight);
@@ -232,10 +234,8 @@ unsigned int ConnectionBuilder::MatrixGenerator::Static::WriteRow(uint32_t *syna
 //    io_printf(IO_BUF, "\n%u, %u, %k, %u, ", pre_idx, postIndex, weight, delay);
 
     if(delay > MAX_DELAY){
-
         uint32_t delay_shift = 1;
         if(delay%MAX_DELAY == 0){ delay_shift++; }
-
         preIndex = pre_idx + (delay/MAX_DELAY - delay_shift)*num_pre_neurons;
     }
     delay = delay%MAX_DELAY;
@@ -243,7 +243,7 @@ unsigned int ConnectionBuilder::MatrixGenerator::Static::WriteRow(uint32_t *syna
     // Build synaptic word
     uint32_t word = BuildStaticWord(weight, delay, synapseType, postIndex, syn_type_bits);
 //#if LOG_LEVEL <= LOG_LEVEL_TRACE
-//    io_printf(IO_BUF, "%u", word);
+//    io_printf(IO_BUF, "%u\n\n", word);
 //#endif
 
     uint32_t *start_of_submatrix = synapse_mtx + 1 + preIndex*(max_per_pre_matrix_size);
@@ -274,7 +274,7 @@ unsigned int ConnectionBuilder::MatrixGenerator::Static::WriteRow(uint32_t *syna
 #ifdef DEBUG_MESSAGES
     if(synapseType == INH){
         LOG_PRINT(LOG_LEVEL_INFO, "Inhibitory");
-    }else{
+    }else if(synapseType == EXC){
         LOG_PRINT(LOG_LEVEL_INFO, "Excitatory");
     }
     LOG_PRINT(LOG_LEVEL_INFO, "word = 0x%08x, masked = 0x%08x", word, word & fixed_mask);
@@ -306,40 +306,47 @@ unsigned int ConnectionBuilder::MatrixGenerator::Static::GetMaxRowWords(unsigned
 //-----------------------------------------------------------------------------
 ConnectionBuilder::MatrixGenerator::Plastic::Plastic(uint32_t *&region) : Base(region)
 {
-  // // Read number of presynaptic state words from region
-  // const uint32_t preStateBytes = *region++;
-  // m_SynapseTraceBytes = *region++;
   is_static = false;
-  // // Round up to words
   io_printf(IO_BUF,
-        "\t\tPlastic synapse matrix: signed? %u, num synapse pre-trace words %u\n",
-        IsSignedWeight(), m_PreStateWords);
+        "\t\tPlastic: signed? %u, bytes:: head %u, weight %u\n",
+        IsSignedWeight(), m_PreStateBytes, m_BytesPerWeight);
 
-  // LOG_PRINT(LOG_LEVEL_INFO, "\t\tPlastic synaptic matrix: %u signed weights, %u bytes presynaptic state (%u words), %u bytes synapse trace",
-  //           IsSignedWeight(), preStateBytes, m_PreStateWords, m_SynapseTraceBytes);
+
 }
 //-----------------------------------------------------------------------------
 unsigned int ConnectionBuilder::MatrixGenerator::Plastic::WriteRow(uint32_t *synapse_mtx,
-  uint32_t num_pre_neurons, uint32_t pre_idx, const uint32_t max_per_pre_matrix_size,
+  uint32_t num_pre_neurons, uint32_t pre_idx, const uint32_t max_row_size,
   const uint32_t numIndices, const uint32_t weight_shift,
-  uint32_t syn_type_bits, uint32_t words_per_weight,
+  uint32_t syn_type_bits, uint32_t half_words_per_weight,
   const uint32_t max_num_plastic, const uint32_t max_num_static, uint32_t synapseType,
   const uint16_t (&indices)[512], const int32_t (&delays)[512], const int32_t (&weights)[512]) const {
 
+
   uint16_t fixed_mask = ((1 << (syn_type_bits + SYNAPSE_INDEX_BITS)) - 1);
 #ifdef DEBUG_MESSAGES
+  LOG_PRINT(LOG_LEVEL_INFO, "max num plastic, numIndices = %u, %u",
+            max_num_plastic, numIndices);
   LOG_PRINT(LOG_LEVEL_INFO, "Plastic Writer");
   LOG_PRINT(LOG_LEVEL_INFO, "synapse type bits %u", syn_type_bits);
+  LOG_PRINT(LOG_LEVEL_INFO, "Half words per weight = %u", half_words_per_weight);
 #endif
 
   uint16_t inserted_indices = 0;
-//  uint32_t plastic_step = m_PreStateWords + numIndices;
-  uint32_t preIndex = pre_idx;
+  uint32_t preIndex = pre_idx; // we might change this based on delay extension
   bool first_pass = true;
 
-  uint32_t max_plastic_words = max_num_plastic/2 + max_num_plastic%2;
-  uint32_t min_indices = max_num_plastic < numIndices ? max_num_plastic : numIndices;
-  uint32_t min_ind_words = min_indices/2 + min_indices%2;
+  uint32_t header_words = m_PreStateBytes/4 + (uint32_t)(m_PreStateBytes % 4 > 0);
+
+  uint32_t max_fixed_plastic_words = max_num_plastic / 2 + max_num_plastic % 2;
+  uint32_t max_plastic_plastic_words = (m_BytesPerWeight*max_num_plastic + m_PreStateBytes);
+  max_plastic_plastic_words = max_plastic_plastic_words / 4 + \
+                              (uint32_t)(max_plastic_plastic_words % 4 > 0);
+
+  uint32_t real_num_indices = max_num_plastic < numIndices ? max_num_plastic : numIndices;
+  uint32_t real_fixed_plastic_words = real_num_indices/2 + real_num_indices%2;
+  uint32_t real_plastic_plastic_words = (m_BytesPerWeight*real_num_indices + m_PreStateBytes);
+  real_plastic_plastic_words = real_plastic_plastic_words / 4 + \
+                                (uint32_t)(real_plastic_plastic_words % 4 > 0);
 
   uint16_t data_index = 0;
   bool inserted_empty = false;
@@ -347,13 +354,13 @@ unsigned int ConnectionBuilder::MatrixGenerator::Plastic::WriteRow(uint32_t *syn
   do{
 
     // Extract index pointed to by sorted index
-    const uint32_t postIndex = indices[data_index];
+    const uint32_t post_id = indices[data_index];
 
     // EXC == 0, INH == 1
     int16_t weight = weights[data_index];
     if (IsSignedWeight() && weight < 0 &&
-        (synapseType == 0 || synapseType == 1)){
-      synapseType = 1;
+        (synapseType == EXC || synapseType == INH)){
+      synapseType = INH;
     }
     if (IsSignedWeight() && weight < 0){
       weight = -weight;
@@ -371,26 +378,28 @@ unsigned int ConnectionBuilder::MatrixGenerator::Plastic::WriteRow(uint32_t *syn
     }
     delay = delay%16;
 
-    uint32_t *start_of_matrix = synapse_mtx + preIndex*max_per_pre_matrix_size;
+    uint32_t *start_of_row = synapse_mtx + preIndex*max_row_size;
 
-    *start_of_matrix = m_PreStateWords + min_indices;
+    *start_of_row = real_plastic_plastic_words;
 
-    uint16_t *start_of_fixed = (uint16_t *)(start_of_matrix + m_PreStateWords +
-                                            min_indices + max_num_static + 2);
-    uint16_t *start_of_plastic = (uint16_t *)(start_of_matrix + m_PreStateWords + 1);
+    uint16_t *start_of_fixed = (uint16_t *)(start_of_row + real_plastic_plastic_words +
+                                            max_num_static + 2);
+    uint16_t *start_of_plastic = (uint16_t *)(start_of_row + header_words + 1);
 
 #ifdef DEBUG_MESSAGES
     LOG_PRINT(LOG_LEVEL_INFO, "Start of syn_mtx = 0x%08x", synapse_mtx);
-    LOG_PRINT(LOG_LEVEL_INFO, "Start of Matrix = 0x%08x", start_of_matrix);
-    LOG_PRINT(LOG_LEVEL_INFO, "Start of Plastic = 0x%08x", start_of_plastic);
-    LOG_PRINT(LOG_LEVEL_INFO, "Start of Fixed = 0x%08x", start_of_fixed);
-    LOG_PRINT(LOG_LEVEL_INFO, "Max per Pre Matrix Size = %u", max_per_pre_matrix_size);
+    LOG_PRINT(LOG_LEVEL_INFO, "Start of Row = 0x%08x", start_of_row);
+    LOG_PRINT(LOG_LEVEL_INFO, "Start of Plastic = 0x%08x\tdelta %u",
+                start_of_plastic, (uint32_t *)start_of_plastic - start_of_row);
+    LOG_PRINT(LOG_LEVEL_INFO, "Start of Fixed = 0x%08x\tdelta %u",
+              start_of_fixed, (uint32_t *)start_of_fixed - (uint32_t *)start_of_plastic);
+    LOG_PRINT(LOG_LEVEL_INFO, "Max per Pre Matrix Size = %u", max_row_size);
 #endif
 
 
     const uint16_t fixed = BuildFixedPlasticWord(0, // axonal delay <- not implemented
                                                  delay, // dendritic delay
-                                                 synapseType, postIndex,
+                                                 synapseType, post_id,
                                                  0, // axon_bits
                                                  4, // dendrite_bits
                                                  syn_type_bits);
@@ -415,7 +424,7 @@ unsigned int ConnectionBuilder::MatrixGenerator::Plastic::WriteRow(uint32_t *syn
     if(numIndices > 0){
 //      LOG_PRINT(LOG_LEVEL_INFO, "before insert sorted");
       insert_sorted(fixed, start_of_fixed, fixed_mask, max_num_plastic, weight,
-                    start_of_plastic, words_per_weight, true, inserted_empty);
+                    start_of_plastic, half_words_per_weight, true, inserted_empty);
 //      LOG_PRINT(LOG_LEVEL_INFO, "after insert sorted");
 
       if(fixed == EMPTY_VAL){
@@ -439,5 +448,6 @@ unsigned int ConnectionBuilder::MatrixGenerator::Plastic::WriteRow(uint32_t *syn
 //-----------------------------------------------------------------------------
 unsigned int ConnectionBuilder::MatrixGenerator::Plastic::GetMaxRowWords(unsigned int maxRowSynapses) const
 {
-  return m_PreStateWords + GetNumPlasticWords(maxRowSynapses) + GetNumControlWords(maxRowSynapses);
+  return (m_PreStateBytes/4 + (unsigned int)(m_PreStateBytes%4 > 0)) +
+         GetNumPlasticWords(maxRowSynapses) + GetNumControlWords(maxRowSynapses);
 }

@@ -99,6 +99,7 @@ void handle_sdp_message(uint mailbox, uint port) {
 //        return;
     }
     else if (n_delays <= 100){
+            // this limit should be defined in a common file with connection_builder.cpp
 
         uint32_t state = spin1_irq_disable();
         // Otherwise, continue reading

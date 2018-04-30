@@ -39,7 +39,7 @@ namespace
 #define CLEAR_MEMORY_FLAG 0x55555555
 #define SLEEP_TIME 10311
 
-#define MAX_PRE_DELAY_ENTRIES 100 // memory limits this
+#define MAX_PRE_DELAY_ENTRIES 20 // memory limits this
 //#define MAX_PRE_DELAY_ENTRIES 150 // memory limits this
 //#define MAX_PRE_DELAY_ENTRIES 256 // memory limits this
 #define MAX_MEMORY_RETRIES 0
@@ -103,7 +103,7 @@ static void wait_for_delay_response(uint32_t rand_num) {
 //  spin1_delay_us(SLEEP_TIME);
   int retry_count = 0;
   // Wait until the response to the last message has been received
-  LOG_PRINT(LOG_LEVEL_INFO, "\t - Waiting for ACK");
+//  LOG_PRINT(LOG_LEVEL_INFO, "\t - Waiting for ACK");
   while (!delay_response_received) {
     if (retry_count >= MAX_RETRIES){
 //      rt_error(RTE_ABORT);
@@ -125,7 +125,7 @@ static void wait_for_delay_response(uint32_t rand_num) {
     }
   }
 
-  LOG_PRINT(LOG_LEVEL_INFO, "\t\t - Waited %u times", retry_count);
+//  LOG_PRINT(LOG_LEVEL_INFO, "\t\t - Waited %u times", retry_count);
 }
 
 static void send_n_delays(uint32_t placement, uint16_t *delays, uint32_t n_delays,
@@ -312,18 +312,16 @@ static bool send_delays(const uint32_t num_placements, const uint32_t *placement
 
 
 
-uint32_t max_matrix_size(uint32_t max_n_static, uint32_t max_n_plastic,
-                         uint32_t plastic_header){
-  // both plastic-plastic and plastic-fixed are 16-bit data
+uint32_t max_row_size(uint32_t max_n_static, uint32_t max_n_plastic,
+                 uint32_t plastic_weight_bytes, uint32_t plastic_header_bytes){
+  uint32_t plastic_plastic_words =
+                (plastic_header_bytes + max_n_plastic*plastic_weight_bytes)/4 +
+                (uint32_t)((plastic_header_bytes + max_n_plastic*plastic_weight_bytes)%4 > 0);
+  uint32_t fixed_plastic_words = (max_n_plastic/2 + max_n_plastic%2);
+  uint32_t fixed_fixed_words = max_n_static;
 
-  uint32_t plastic_word_size = (max_n_plastic/2 + max_n_plastic%2);
-//  LOG_PRINT(LOG_LEVEL_INFO, "header: %u, static: %u, plastic: %u ; %u, def: 3",
-//            plastic_header, max_n_static, max_n_plastic, plastic_word_size);
-
-  return 1 + plastic_header + max_n_plastic +
-         1 + 1 + max_n_static + plastic_word_size;
-  //n_plastic was already multiplied before
-//  return 1 + plastic_word_size + 1 + 1 + n_static + n_plastic;
+  return (1 + plastic_plastic_words + 1 + 1 +
+          fixed_fixed_words + fixed_plastic_words );
 
 }
 //-----------------------------------------------------------------------------
@@ -331,13 +329,13 @@ uint32_t max_matrix_size(uint32_t max_n_static, uint32_t max_n_plastic,
 //-----------------------------------------------------------------------------
 bool ReadSynapticMatrixRegion(uint32_t *region, uint32_t)
 {
-  LOG_PRINT(LOG_LEVEL_INFO, "ReadSynapticMatrixRegion");
+  //LOG_PRINT(LOG_LEVEL_INFO, "ReadSynapticMatrixRegion");
 
   // Cache pointer to region as base address for synaptic matrices
   g_SynapticMatrixBaseAddress = region;
 
-  LOG_PRINT(LOG_LEVEL_INFO, "\tSynaptic matrix base address:%08x",
-            g_SynapticMatrixBaseAddress);
+  //LOG_PRINT(LOG_LEVEL_INFO, "\tSynaptic matrix base address:%08x",
+  //          g_SynapticMatrixBaseAddress);
 
   return true;
 }
@@ -350,7 +348,7 @@ bool ReadConnectionBuilderRegion(uint32_t **in_region,
                                  uint32_t num_synapse_bits,
                                  uint32_t num_static,
                                  uint32_t num_plastic){
-  LOG_PRINT(LOG_LEVEL_INFO, "Reading Connection Builder Region");
+  //LOG_PRINT(LOG_LEVEL_INFO, "Connection Builder Region");
 
   uint32_t *region = *in_region;
 
@@ -435,11 +433,11 @@ bool ReadConnectionBuilderRegion(uint32_t **in_region,
 
   const auto connectorGenerator = g_ConnectorGeneratorFactory.Create(connector_type_hash, 
                                                      region, g_ConnectorGeneratorBuffer);
-  io_printf(IO_BUF, "\t\tWeight\n");
+  //io_printf(IO_BUF, "\t\tWeight\n");
   const auto weightGenerator = g_ParamGeneratorFactory.Create(weight_type_hash,
                                          region, g_WeightParamGeneratorBuffer);
 
-  io_printf(IO_BUF, "\t\tDelay\n");
+  //io_printf(IO_BUF, "\t\tDelay\n");
   const auto delayGenerator = g_ParamGeneratorFactory.Create(delay_type_hash,
                                          region, g_DelayParamGeneratorBuffer);
 
@@ -447,7 +445,7 @@ bool ReadConnectionBuilderRegion(uint32_t **in_region,
 
   // If any components couldn't be created return false
   if(matrixGenerator == NULL || connectorGenerator == NULL
-    || delayGenerator == NULL || weightGenerator == NULL)
+     || delayGenerator == NULL || weightGenerator == NULL)
   {
     return NULL;
   }
@@ -457,16 +455,10 @@ bool ReadConnectionBuilderRegion(uint32_t **in_region,
 #endif
 
   if(matrixGenerator->is_static){
-//    num_static = max_post_neurons;
     num_static = row_len;
   }
   else{
     if(row_len > 0){
-      //diff means 2*(max plastic words)? and we can have 2 plastic control/weights
-      //per word, so to get max num plastic = 2(row_len - stateWords)/2
-      //which means we shouldn't do a thing!
-//      num_plastic = (row_len - matrixGenerator->m_PreStateWords);
-//      num_plastic = (num_plastic/2 + num_plastic%2);
       num_plastic = max_post_neurons;
     }else{
       num_plastic = 0;
@@ -483,8 +475,9 @@ bool ReadConnectionBuilderRegion(uint32_t **in_region,
   }
 
 
-  uint32_t per_pre_size = max_matrix_size(num_static, num_plastic,
-                                          matrixGenerator->m_PreStateWords);
+  uint32_t per_pre_size = max_row_size(num_static, num_plastic,
+                                          matrixGenerator->m_BytesPerWeight,
+                                          matrixGenerator->m_PreStateBytes);
 #ifdef DEBUG_MESSAGES
   LOG_PRINT(LOG_LEVEL_INFO,
             "max num static: %u, max num plastic: %u, max matrix size: %u",
@@ -564,7 +557,7 @@ bool ReadSDRAMData(uint32_t *params_address, uint32_t *syn_mtx_addr){
 
   uint32_t mem_tag = ID_DELAY_SDRAM_TAG + spin1_get_core_id();
 
-//#ifdef DEBUG_MESSAGES
+#ifdef DEBUG_MESSAGES
   LOG_PRINT(LOG_LEVEL_INFO, "Allocating up memory for tag %u", mem_tag);
 
   LOG_PRINT(LOG_LEVEL_INFO, "%u bytes of free DTCM",
@@ -574,9 +567,10 @@ bool ReadSDRAMData(uint32_t *params_address, uint32_t *syn_mtx_addr){
 //  LOG_PRINT(LOG_LEVEL_INFO, "idx/delay buffer size = %u bytes",
 //            (MAX_PRE_DELAY_ENTRIES*256)*sizeof(uint16_t) );
 
+#endif 
 
   pre_delay_pairs = (uint16_t *)sark_xalloc(sark.heap,
-                               (MAX_PRE_DELAY_ENTRIES*256)*sizeof(uint16_t),
+                               (MAX_PRE_DELAY_ENTRIES*255)*sizeof(uint16_t),
                                 mem_tag, ALLOC_LOCK);
 
   if(pre_delay_pairs == NULL){
@@ -635,7 +629,7 @@ bool ReadSDRAMData(uint32_t *params_address, uint32_t *syn_mtx_addr){
   uint32_t min_weight_scale = 100000;
 //  weight_scales[0] -= 1;
   for(uint32_t i = 0; i < num_synapse_types; i++){
-    LOG_PRINT(LOG_LEVEL_INFO, "Weight scale %u = %u", i, weight_scales[i]);
+//    LOG_PRINT(LOG_LEVEL_INFO, "Weight scale %u = %u", i, weight_scales[i]);
     if ( weight_scales[i] < min_weight_scale ){
       min_weight_scale = weight_scales[i];
     }
@@ -661,7 +655,7 @@ bool ReadSDRAMData(uint32_t *params_address, uint32_t *syn_mtx_addr){
       if( (build_flags[w] & edge_mask) != 0){
 //        LOG_PRINT(LOG_LEVEL_INFO, "0x%08x <=> 0x%08x", build_flags[w], edge_mask);
 
-        io_printf(IO_BUF, "\n\n\n");
+        io_printf(IO_BUF, "\n\n");
         if( !ReadConnectionBuilderRegion(&params_address, syn_mtx_addr,
                                          post_slice_start, post_slice_count,
                                          weight_scales, num_synapse_bits,
@@ -685,7 +679,7 @@ bool ReadSDRAMData(uint32_t *params_address, uint32_t *syn_mtx_addr){
   }
 
 
-  LOG_PRINT(LOG_LEVEL_INFO, "\n\n\n\n");
+  LOG_PRINT(LOG_LEVEL_INFO, "\n\n");
 #ifdef DEBUG_MESSAGES
   if((syn_mtx_addr[0] >> 2) < 81){
     LOG_PRINT(LOG_LEVEL_INFO, "synaptic matrix address = 0x%08x", syn_mtx_addr);
@@ -782,7 +776,7 @@ void app_start(uint a0, uint a1){
   uint32_t *syn_mtx_addr = data_specification_get_region(SYNAPTIC_MATRIX_REGION,
                                                          core_address);
 
-  LOG_PRINT(LOG_LEVEL_INFO, "\tReading SDRAM at 0x%08x", sdram_address);
+  //LOG_PRINT(LOG_LEVEL_INFO, "\tReading SDRAM at 0x%08x", sdram_address);
 
   if(!ReadSDRAMData(sdram_address, syn_mtx_addr))
   {
